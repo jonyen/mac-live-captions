@@ -2,8 +2,10 @@
 
 A menu-bar-only (no Dock icon) Mac app that captions your Mac's microphone and
 system audio live, in a floating always-on-top panel. Captions are generated
-entirely on-device with Apple's speech recognizer — audio never leaves the
-machine, there's no server, no relay, and no transcript history.
+on-device whenever Apple's on-device speech model is available for your
+language (the app requests it explicitly); without it, macOS falls back to
+Apple's speech servers. There's no app server, no relay, and no transcript
+history.
 
 ## Features
 - **Menu bar controls** — Start/Stop, and independent Microphone / System
@@ -16,11 +18,13 @@ machine, there's no server, no relay, and no transcript history.
   hover. Double-click the panel to zoom it to fill the screen; double-click
   again to restore. If the session hits an error, the panel shows the error
   message instead.
-- **On-device speech recognition** — `AppleSpeechEngine.swift` wraps
-  `SFSpeechRecognizer` as a `CaptionEngine` (from the `caption-core` package):
-  `start()` asks for speech-recognition permission and emits `.ready`;
-  `send(_:)` takes interleaved stereo PCM (mic + system audio) and feeds one
-  recognizer per channel.
+- **Speech recognition** — `AppleSpeechEngine.swift` wraps `SFSpeechRecognizer`
+  as a `CaptionEngine` (from the `caption-core` package): `start()` asks for
+  speech-recognition permission and emits `.ready`; `send(_:)` takes
+  interleaved stereo PCM (mic + system audio) and feeds one recognizer per
+  channel. It requests on-device recognition when the recognizer reports
+  `supportsOnDeviceRecognition`; otherwise the audio is recognized via
+  Apple's speech servers.
 - **Global hotkey** — a menu-bar-independent shortcut (default ⌃⌥⌘C,
   configurable) toggles the caption overlay without needing to click the menu
   bar icon. Arriving in the next few commits.
