@@ -88,6 +88,13 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section("Captions") {
+                LabeledContent("Global shortcut") {
+                    HotkeyRecorderField(hotkey: $settings.hotkey)
+                        .fixedSize()
+                }
+                Text("Toggles captions from any app. Delete clears it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 HStack {
                     Slider(value: $settings.fontSize, in: 12...48, step: 1) {
                         Text("Text size")
