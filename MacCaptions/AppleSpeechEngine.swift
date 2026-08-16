@@ -106,27 +106,45 @@ private final class ChannelRecognizer {
     private let channel: Int
     private let queue: DispatchQueue
     private let emit: (String, Bool, Int) -> Void
-    private let recognizer: SFSpeechRecognizer
     private let format = AVAudioFormat(
         commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: true)!
 
     private var request: SFSpeechAudioBufferRecognitionRequest?
     private var task: SFSpeechRecognitionTask?
+    /// The recognizer backing the in-flight task. Created fresh alongside
+    /// each task in `activeRequest()` (see the comment there for why) and
+    /// released once the task ends; never held across a gap in speech.
+    private var recognizer: SFSpeechRecognizer?
     /// Bumped whenever the current task is abandoned; stale results are dropped.
     private var generation = 0
     private var partial = ""
     private var lastChange = Date()
+    /// Silence must not open a recognition task (see `EnergyGate`'s doc
+    /// comment for why); this gate is the single point deciding whether
+    /// incoming audio is worth starting/continuing a task for.
+    private var gate = EnergyGate()
 
     init?(channel: Int, queue: DispatchQueue, emit: @escaping (String, Bool, Int) -> Void) {
-        guard let recognizer = SFSpeechRecognizer(), recognizer.isAvailable else { return nil }
+        // Availability probe only — the instance a task actually runs on is
+        // created fresh in activeRequest() for every task. Holding a single
+        // SFSpeechRecognizer for this recognizer's whole lifetime doesn't
+        // work: the first task may not start until minutes after `init?`
+        // (whenever speech first arrives), and a task built on an instance
+        // that's been idle that long never delivers a single callback — no
+        // results, no errors, just silence. Diagnosed live.
+        guard SFSpeechRecognizer()?.isAvailable == true else { return nil }
         self.channel = channel
         self.queue = queue
         self.emit = emit
-        self.recognizer = recognizer
     }
 
     func append(_ samples: [Int16]) {
-        guard !samples.isEmpty, let buffer = makeBuffer(samples) else { return }
+        // The gate drops silence outright so it never reaches activeRequest():
+        // a task fed nothing but silence fails within ~200ms
+        // (kAFAssistantErrorDomain 1110, "No speech detected"), and without
+        // the gate every subsequent 100ms chunk would open a fresh task into
+        // the same failure — constant churn, nothing ever transcribed.
+        guard let admitted = gate.admit(samples), let buffer = makeBuffer(admitted) else { return }
         activeRequest().append(buffer)
     }
 
@@ -147,6 +165,16 @@ private final class ChannelRecognizer {
         let request = SFSpeechAudioBufferRecognitionRequest()
         request.shouldReportPartialResults = true
         request.taskHint = .dictation
+
+        // A fresh SFSpeechRecognizer for this task, not the one probed in
+        // init? — see init?'s comment for why a long-idle instance is a dead
+        // end. If recognition has become unavailable since init? (extremely
+        // rare — init? already confirmed a recognizer for the default
+        // locale), bail without caching request/task so the next chunk that
+        // opens the gate retries from scratch rather than getting stuck.
+        guard let recognizer = SFSpeechRecognizer() else { return request }
+        self.recognizer = recognizer
+
         if recognizer.supportsOnDeviceRecognition {
             request.requiresOnDeviceRecognition = true
         }
@@ -167,7 +195,10 @@ private final class ChannelRecognizer {
                     if result.isFinal { self.finalizeUtterance() }
                 } else if error != nil {
                     // Recognizer gave up (silence timeout, cancellation, …):
-                    // keep whatever was heard and restart on the next audio.
+                    // keep whatever was heard. abandonTask() re-arms the
+                    // energy gate, so the next chunk of silence is dropped
+                    // instead of opening another task straight into the same
+                    // ~200ms failure.
                     if !self.partial.isEmpty { self.finalizeUtterance() } else { self.abandonTask() }
                 }
             }
@@ -189,7 +220,14 @@ private final class ChannelRecognizer {
         task?.cancel()
         request = nil
         task = nil
+        recognizer = nil
         partial = ""
+        // Every path that ends a task — the error branch above, a finalized
+        // utterance, or `finish()` — routes through here, so this is the one
+        // place that needs to re-arm the gate: close it and drop whatever
+        // pre-roll it was holding, so silence after a dead task is dropped
+        // again instead of reopening a task straight into the same failure.
+        gate.rearm()
     }
 
     private func makeBuffer(_ samples: [Int16]) -> AVAudioPCMBuffer? {
