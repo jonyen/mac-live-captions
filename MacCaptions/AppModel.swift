@@ -14,10 +14,17 @@ final class AppModel: ObservableObject {
     private var controller: SessionController?
     private let panel = CaptionPanelController()
     private var stateObservation: AnyCancellable?
+    private var hotkey: GlobalHotkey?
+    private var hotkeyObservation: AnyCancellable?
 
     init() {
         observeStore()
         AppDelegate.onReopen = { [weak self] in self?.showPanel() }
+        hotkey = GlobalHotkey { [weak self] in self?.toggle() }
+        hotkeyObservation = settings.$hotkey.sink { [weak self] binding in
+            if let binding { self?.hotkey?.register(binding) }
+            else { self?.hotkey?.unregister() }
+        }
     }
 
     func toggle() {

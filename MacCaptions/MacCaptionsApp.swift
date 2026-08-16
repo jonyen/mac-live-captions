@@ -21,7 +21,15 @@ struct MacCaptionsApp: App {
     var body: some Scene {
         MenuBarExtra("Captions", systemImage: model.capturing ? "captions.bubble.fill" : "captions.bubble") {
             StatusLine(store: model.store, capturing: model.capturing)
-            Button(model.capturing ? "Stop Captions" : "Start Captions") { model.toggle() }
+            // The global trigger is Carbon (GlobalHotkey), registered from
+            // AppModel; this just shows the current combo as the menu's
+            // native shortcut hint and gives it a local, in-menu shortcut too.
+            if let (key, mods) = model.settings.hotkey?.keyEquivalent {
+                Button(model.capturing ? "Stop Captions" : "Start Captions") { model.toggle() }
+                    .keyboardShortcut(key, modifiers: mods)
+            } else {
+                Button(model.capturing ? "Stop Captions" : "Start Captions") { model.toggle() }
+            }
             Toggle("Microphone", isOn: $model.micOn)
             Toggle("System Audio", isOn: $model.systemOn)
             Divider()
