@@ -1,4 +1,5 @@
 import Foundation
+import ServiceManagement
 
 /// Overlay preferences, UserDefaults-backed.
 final class SettingsStore: ObservableObject {
@@ -17,9 +18,28 @@ final class SettingsStore: ObservableObject {
         }
     }
 
+    /// Registered as a login item so the hotkey works after a reboot —
+    /// a global hotkey only fires while the app is running.
+    @Published var launchAtLogin: Bool {
+        didSet {
+            guard !revertingLoginItem, oldValue != launchAtLogin else { return }
+            do {
+                if launchAtLogin { try SMAppService.mainApp.register() }
+                else { try SMAppService.mainApp.unregister() }
+            } catch {
+                // Reflect reality: the toggle failed, so put it back.
+                revertingLoginItem = true
+                launchAtLogin = oldValue
+                revertingLoginItem = false
+            }
+        }
+    }
+    private var revertingLoginItem = false
+
     init() {
         let storedSize = UserDefaults.standard.double(forKey: "captionFontSize")
         fontSize = storedSize > 0 ? storedSize : Self.defaultFontSize
         hotkey = HotkeyBinding.stored()
+        launchAtLogin = SMAppService.mainApp.status == .enabled
     }
 }

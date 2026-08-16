@@ -105,6 +105,12 @@ struct SettingsView: View {
                         .frame(width: 40, alignment: .trailing)
                 }
             }
+            Section("General") {
+                Toggle("Launch at login", isOn: $settings.launchAtLogin)
+                Text("Keeps the global shortcut working after a restart.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .formStyle(.grouped)
         .frame(width: 460)

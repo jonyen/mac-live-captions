@@ -27,9 +27,16 @@ history.
   Apple's speech servers.
 - **Global hotkey** — a menu-bar-independent shortcut (default ⌃⌥⌘C,
   configurable) toggles the caption overlay without needing to click the menu
-  bar icon. Arriving in the next few commits.
-- **Settings** — a text-size slider for the caption overlay
-  (`SettingsStore.swift`, backed by `UserDefaults`).
+  bar icon. `GlobalHotkey.swift` registers it with Carbon so it fires from any
+  app; `HotkeyBinding.swift` is the persisted key/modifier value; the menu's
+  native shortcut hint and the in-Settings recorder
+  (`HotkeyRecorderField.swift`) both stay in sync with it.
+- **Launch at login** — a toggle in Settings (`SettingsStore.swift`, backed by
+  `SMAppService.mainApp`) registers Captions as a login item, since the
+  global hotkey only works while the app is running.
+- **Settings** — a text-size slider and the launch-at-login toggle for the
+  caption overlay (`SettingsStore.swift`, backed by `UserDefaults` and
+  `SMAppService`).
 
 ## Layout
 - `MacCaptions/` — the app: `AppModel` (state, capture + recognition
@@ -73,5 +80,6 @@ xcodebuild build -project Captions.xcodeproj -scheme Captions \
 xcodebuild test -project Captions.xcodeproj -scheme Captions \
   -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO
 ```
-5 tests (Interleaver PCM mixing + a build smoke test).
+10 tests (HotkeyBinding parsing/persistence + Interleaver PCM mixing + a build
+smoke test).
 (If you have a Development cert for team 7PZN69YDL4, omit `CODE_SIGNING_ALLOWED=NO`.)
