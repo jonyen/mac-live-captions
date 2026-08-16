@@ -4,7 +4,10 @@ import AVFoundation
 /// as the watch AudioCapture, minus AVAudioSession, which doesn't exist on macOS).
 final class MicSource {
     private let engine = AVAudioEngine()
-    private var converter: AVAudioConverter?
+    // Not `private`: exposed at file-crossing (internal) visibility so
+    // MicSourceTests can inject a pre-built converter and drive `convert(_:)`
+    // directly, without spinning up AVAudioEngine (which needs live hardware).
+    var converter: AVAudioConverter?
     private let targetFormat = AVAudioFormat(
         commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: true)!
 
@@ -18,7 +21,15 @@ final class MicSource {
             try? input.setVoiceProcessingEnabled(true)
         }
         let inputFormat = input.outputFormat(forBus: 0)
-        guard let converter = AVAudioConverter(from: inputFormat, to: targetFormat) else {
+        // Build the converter from a mono Float32 intermediate format, NOT
+        // directly from inputFormat. See the WHY comment on monoChannel0(_:)
+        // below — AVAudioConverter silently zero-fills a direct multichannel
+        // -> mono conversion on modern mic arrays, so we extract channel 0
+        // ourselves and only ask the converter to do rate/bit-depth work.
+        let monoFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32, sampleRate: inputFormat.sampleRate,
+            channels: 1, interleaved: false)!
+        guard let converter = AVAudioConverter(from: monoFormat, to: targetFormat) else {
             throw CaptureError.converterUnavailable
         }
         self.converter = converter
@@ -41,10 +52,48 @@ final class MicSource {
         converter = nil
     }
 
-    private func convert(_ buffer: AVAudioPCMBuffer) -> [Int16]? {
-        guard let converter else { return nil }
-        let ratio = targetFormat.sampleRate / buffer.format.sampleRate
-        let capacity = AVAudioFrameCount(Double(buffer.frameLength) * ratio) + 1
+    /// Extract channel 0 of `buffer` into a new mono Float32 buffer at the
+    /// same sample rate.
+    ///
+    /// WHY: AVAudioConverter silently zero-fills a direct multichannel
+    /// deinterleaved -> mono conversion on modern mic arrays. Proven live on
+    /// this machine's 9-channel M4 Pro mic array with voice processing
+    /// enabled: `AVAudioConverter(from: 9ch deinterleaved Float32 48kHz, to:
+    /// 16kHz mono Int16)` reports status `.haveData`, no error, but every
+    /// sample is 0 — while channel 0 of the raw input buffer carries real
+    /// voice (RMS 89-5874, tracking speech). Extracting channel 0 first and
+    /// converting *that* mono buffer works correctly. Handles both
+    /// deinterleaved (the common case for AVAudioEngine's inputNode) and
+    /// interleaved layouts — don't assume which one a given input format uses.
+    static func monoChannel0(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        let frameCount = Int(buffer.frameLength)
+        guard let monoFormat = AVAudioFormat(
+            commonFormat: .pcmFormatFloat32, sampleRate: buffer.format.sampleRate,
+            channels: 1, interleaved: false),
+            let mono = AVAudioPCMBuffer(pcmFormat: monoFormat, frameCapacity: buffer.frameLength),
+            let monoData = mono.floatChannelData?[0]
+        else { return nil }
+
+        if buffer.format.isInterleaved {
+            guard let raw = buffer.audioBufferList.pointee.mBuffers.mData else { return nil }
+            let stride = Int(buffer.format.channelCount)
+            let source = raw.assumingMemoryBound(to: Float.self)
+            for i in 0..<frameCount {
+                monoData[i] = source[i * stride]
+            }
+        } else {
+            guard let source = buffer.floatChannelData?[0] else { return nil }
+            monoData.update(from: source, count: frameCount)
+        }
+        mono.frameLength = buffer.frameLength
+        return mono
+    }
+
+    // Not `private`: see the note on `converter` above — same testability seam.
+    func convert(_ buffer: AVAudioPCMBuffer) -> [Int16]? {
+        guard let converter, let mono = MicSource.monoChannel0(buffer) else { return nil }
+        let ratio = targetFormat.sampleRate / mono.format.sampleRate
+        let capacity = AVAudioFrameCount(Double(mono.frameLength) * ratio) + 1
         guard let out = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: capacity) else {
             return nil
         }
@@ -54,7 +103,7 @@ final class MicSource {
             if consumed { status.pointee = .noDataNow; return nil }
             consumed = true
             status.pointee = .haveData
-            return buffer
+            return mono
         }
         guard error == nil, let channel = out.int16ChannelData, out.frameLength > 0 else {
             return nil

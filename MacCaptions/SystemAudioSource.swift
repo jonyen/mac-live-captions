@@ -70,12 +70,22 @@ final class SystemAudioSource: NSObject, SCStreamOutput {
         guard type == .audio,
               let onSamples,
               let pcm = sampleBuffer.toPCMBuffer() else { return }
-        if converter == nil || converter?.inputFormat != pcm.format {
-            converter = AVAudioConverter(from: pcm.format, to: targetFormat)
+        // Route through a mono Float32 intermediate rather than converting
+        // pcm.format -> targetFormat directly, same as MicSource and for the
+        // same reason: AVAudioConverter silently zero-fills a direct
+        // multichannel -> mono conversion on some inputs (proven live for
+        // the mic array; ScreenCaptureKit's audio can likewise be
+        // multichannel depending on the output device, e.g. a multichannel
+        // aggregate/surround device). No runtime test here — this machine
+        // doesn't have Screen Recording permission granted — but
+        // MicSource.monoChannel0 is the same statically-tested seam.
+        guard let mono = MicSource.monoChannel0(pcm) else { return }
+        if converter == nil || converter?.inputFormat != mono.format {
+            converter = AVAudioConverter(from: mono.format, to: targetFormat)
         }
         guard let converter else { return }
-        let ratio = targetFormat.sampleRate / pcm.format.sampleRate
-        let capacity = AVAudioFrameCount(Double(pcm.frameLength) * ratio) + 1
+        let ratio = targetFormat.sampleRate / mono.format.sampleRate
+        let capacity = AVAudioFrameCount(Double(mono.frameLength) * ratio) + 1
         guard let out = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: capacity) else { return }
         var consumed = false
         var error: NSError?
@@ -83,7 +93,7 @@ final class SystemAudioSource: NSObject, SCStreamOutput {
             if consumed { status.pointee = .noDataNow; return nil }
             consumed = true
             status.pointee = .haveData
-            return pcm
+            return mono
         }
         guard error == nil, let channel = out.int16ChannelData, out.frameLength > 0 else { return }
         onSamples(Array(UnsafeBufferPointer(start: channel[0], count: Int(out.frameLength))))
