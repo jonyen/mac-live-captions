@@ -5,7 +5,8 @@ options:
     macOS: "14.0"
 packages:
   CaptionCore:
-    path: ../watch/CaptionCore
+    url: https://github.com/jonyen/caption-core
+    from: 0.1.0
 targets:
   Captions:
     type: application
