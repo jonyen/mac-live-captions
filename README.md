@@ -1,62 +1,73 @@
-# Captions — macOS menu bar caption app
+# Captions — macOS live caption overlay
 
-Menu-bar-only (no Dock icon) companion app that streams Mac mic + system audio to the
-caption relay and shows live captions in a floating panel.
+A menu-bar-only (no Dock icon) Mac app that captions your Mac's microphone and
+system audio live, in a floating always-on-top panel. Captions are generated
+entirely on-device with Apple's speech recognizer — audio never leaves the
+machine, there's no server, no relay, and no transcript history.
 
 ## Features
-- **Menu bar controls** — Start/Stop, and independent Microphone / System Audio toggles
-  (`MacCaptionsApp.swift`, `AppModel`). The menu also shows a small status line
-  (Connecting… / Listening… / the current error) driven by the caption store's state.
-- **Floating caption panel** — translucent, always-on-top, non-activating panel showing
-  the last few caption lines with `Me:` / `Them:` labels (channel 0 = mic, channel 1 =
-  system audio). If the session hits an error, the panel shows the error message instead
-  of/above the caption lines, so failures are always visible rather than silent.
-- **Settings** — relay URL and auth token, entered in the app's Settings window. The URL
-  is stored in `UserDefaults`; the token is stored in the Keychain (`SettingsStore.swift`).
-- **Transcripts window** — browse past sessions and summaries from the relay's transcript
-  store (`TranscriptsView`), the same list that syncs across devices.
-- **Permissions** — first capture prompts for **Microphone** access, and separately for
-  **Screen Recording** access (required for system-audio capture via ScreenCaptureKit).
-  Granting Screen Recording access **requires relaunching the app** before capture will
-  actually include system audio — macOS doesn't apply a fresh Screen Recording grant to
-  an already-running process.
+- **Menu bar controls** — Start/Stop, and independent Microphone / System
+  Audio toggles (`MacCaptionsApp.swift`, `AppModel`). The menu also shows a
+  small status line (Connecting… / Listening… / the current error) driven by
+  the caption store's state.
+- **Floating caption panel** — translucent, always-on-top, non-activating
+  panel (`CaptionPanel.swift`) showing live captions from both mic and system
+  audio as flowing text, with pause/resume and stop controls that fade in on
+  hover. Double-click the panel to zoom it to fill the screen; double-click
+  again to restore. If the session hits an error, the panel shows the error
+  message instead.
+- **On-device speech recognition** — `AppleSpeechEngine.swift` wraps
+  `SFSpeechRecognizer` as a `CaptionEngine` (from the `caption-core` package):
+  `start()` asks for speech-recognition permission and emits `.ready`;
+  `send(_:)` takes interleaved stereo PCM (mic + system audio) and feeds one
+  recognizer per channel.
+- **Global hotkey** — a menu-bar-independent shortcut (default ⌃⌥⌘C,
+  configurable) toggles the caption overlay without needing to click the menu
+  bar icon. Arriving in the next few commits.
+- **Settings** — a text-size slider for the caption overlay
+  (`SettingsStore.swift`, backed by `UserDefaults`).
 
 ## Layout
-- `../watch/CaptionCore/` — shared Swift package with the pure logic (`ServerMessage`,
-  `CaptionStore`, `SessionController`, protocols). Already supports macOS 13+.
-- `MacCaptions/` — the macOS app: `AppModel` (state, relay/capture wiring), `DualCapture` +
-  `SystemAudioSource` + `MicSource` (audio capture), `CaptionPanel.swift` (floating panel),
-  `SettingsStore` (relay URL + Keychain token), `TranscriptsView` (transcripts window), `@main`
-  app (`MenuBarExtra` scene, `LSUIElement` so it has no Dock icon or main window).
+- `MacCaptions/` — the app: `AppModel` (state, capture + recognition
+  wiring), `DualCapture` + `SystemAudioSource` + `MicSource` + `Interleaver`
+  + `AudioHub` (mic and system-audio capture), `AppleSpeechEngine` (on-device
+  speech recognition), `CaptionPanel.swift` (the floating overlay),
+  `SettingsStore` (overlay preferences), `MacPermissions` (mic authorization),
+  and the `@main` app (`MenuBarExtra` scene, `LSUIElement` so there's no Dock
+  icon or main window).
 - `MacCaptionsTests/` — unit test target.
-- `project.yml` — XcodeGen project definition. The `.xcodeproj` is generated (gitignored).
+- `project.yml` — XcodeGen project definition. `Captions.xcodeproj` is
+  generated from this and is gitignored.
+- Depends on the remote Swift package
+  [`jonyen/caption-core`](https://github.com/jonyen/caption-core) for the
+  shared `CaptionEngine` protocol, `CaptionEvent`, and `CaptionStore`/
+  `SessionController` logic.
 
 ## Setup
-1. `cd mac && xcodegen generate && open Captions.xcodeproj`
-2. Select your signing team in Xcode if `DEVELOPMENT_TEAM` in `project.yml` doesn't match.
-3. Run. The app lives in the menu bar (look for the captions icon) — no Dock icon, no window.
-4. Open Settings from the menu and enter the relay URL and auth token (mirrors
-   `watch/WatchCaptions/Secrets.swift`).
-5. On first capture, macOS will prompt for **Microphone** access, and separately for
-   **Screen Recording** access — grant both in System Settings → Privacy & Security if you
-   miss the prompts. If you grant Screen Recording after the app is already running,
-   quit and relaunch it before system-audio capture will work.
+1. `xcodegen generate && open Captions.xcodeproj`
+2. Select your signing team in Xcode if `DEVELOPMENT_TEAM` in `project.yml`
+   doesn't match.
+3. Run. The app lives in the menu bar (look for the captions icon) — no Dock
+   icon, no window until you start captioning.
+4. On first capture, macOS will prompt for **Microphone** access, **Speech
+   Recognition** access, and separately for **Screen Recording** access
+   (required for system-audio capture via ScreenCaptureKit) — grant all three
+   in System Settings → Privacy & Security if you miss the prompts. A fresh
+   Screen Recording grant only takes effect after relaunching the app —
+   macOS doesn't apply it to an already-running process.
 
-## Test (logic)
+## Build
 ```bash
-cd watch/CaptionCore && swift test
-```
-
-## Build (app)
-```bash
-cd mac && xcodebuild build -project Captions.xcodeproj -scheme Captions \
+xcodegen generate
+xcodebuild build -project Captions.xcodeproj -scheme Captions \
   -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO
 ```
 (If you have a Development cert for team 7PZN69YDL4, omit `CODE_SIGNING_ALLOWED=NO`.)
 
-## Test (app target)
+## Test
 ```bash
-cd mac && xcodebuild test -project Captions.xcodeproj -scheme Captions \
+xcodebuild test -project Captions.xcodeproj -scheme Captions \
   -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO
 ```
+5 tests (Interleaver PCM mixing + a build smoke test).
 (If you have a Development cert for team 7PZN69YDL4, omit `CODE_SIGNING_ALLOWED=NO`.)

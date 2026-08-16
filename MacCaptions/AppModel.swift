@@ -43,7 +43,7 @@ final class AppModel: ObservableObject {
             systemEnabled: { [weak self] in self?.systemOn ?? false }))
         self.hub = hub
         let controller = SessionController(
-            store: store, relay: LocalSpeechRelay(), audio: hub.makeTap(),
+            store: store, relay: AppleSpeechEngine(), audio: hub.makeTap(),
             permission: MacPermissions())
         self.controller = controller
         capturing = true

@@ -3,13 +3,10 @@ import AVFoundation
 import Speech
 import CaptionCore
 
-/// Apple on-device captioning presented as a `CaptionEngine`, so
-/// `SessionController` drives it exactly like a relay-backed provider:
-/// `start()` asks for speech-recognition permission and emits `.ready`;
-/// `send(_:)` takes the same interleaved stereo PCM the relay gets and feeds
-/// one recognizer per channel; captions come back as `.caption` messages. No
-/// backend involved.
-final class LocalSpeechRelay: NSObject, CaptionEngine {
+/// Apple on-device captioning as a `CaptionEngine`: `start()` asks for
+/// speech-recognition permission and emits `.ready`; `send(_:)` takes
+/// interleaved stereo PCM and feeds one recognizer per channel.
+final class AppleSpeechEngine: NSObject, CaptionEngine {
     var onEvent: (@MainActor (CaptionEvent) -> Void)?
     var onClose: (@MainActor () -> Void)?
 
