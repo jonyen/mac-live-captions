@@ -15,7 +15,7 @@ final class CaptionPanelController {
             settings: model.settings,
             onDoubleTap: { [weak self] in self?.toggleZoom() }))
         let p = NSPanel(
-            contentRect: NSRect(x: 0, y: 120, width: 560, height: 140),
+            contentRect: NSRect(x: 0, y: 120, width: 560, height: 260),
             styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView, .resizable],
             backing: .buffered, defer: false)
         p.level = .floating
@@ -33,6 +33,9 @@ final class CaptionPanelController {
         }
         p.contentView = view
         p.center()
+        // The transcript is never trimmed, so the panel's height decides how
+        // much history is visible at once; remember the user's resize.
+        p.setFrameAutosaveName("CaptionPanel")
         p.orderFrontRegardless()
         panel = p
     }
