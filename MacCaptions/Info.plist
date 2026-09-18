@@ -24,6 +24,8 @@
 	<true/>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Captions audio playing on your Mac (calls, videos).</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Saves caption transcripts to your Documents folder when Save Transcripts is on.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Captions your side of conversations.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

@@ -33,6 +33,9 @@ struct MacCaptionsApp: App {
             Toggle("Microphone", isOn: $model.micOn)
             Toggle("System Audio", isOn: $model.systemOn)
             Divider()
+            TranscriptMenuItems(settings: model.settings, transcripts: model.transcripts,
+                                reveal: model.revealTranscriptsFolder)
+            Divider()
             // SettingsLink doesn't activate an LSUIElement app, so the
             // Settings window opens behind every other window; activate first.
             Button("Settings…") {
@@ -42,7 +45,7 @@ struct MacCaptionsApp: App {
             Button("Quit") { NSApplication.shared.terminate(nil) }
         }
         Settings {
-            SettingsView(settings: model.settings)
+            SettingsView(settings: model.settings, reveal: model.revealTranscriptsFolder)
         }
     }
 }
@@ -82,8 +85,27 @@ private struct StatusLine: View {
     }
 }
 
+/// Same reason as StatusLine: the menu must observe the nested objects
+/// directly, or the toggle and error line would render stale.
+private struct TranscriptMenuItems: View {
+    @ObservedObject var settings: SettingsStore
+    @ObservedObject var transcripts: TranscriptRecorder
+    let reveal: () -> Void
+
+    var body: some View {
+        Toggle("Save Transcripts", isOn: $settings.saveTranscripts)
+        Button("Open Transcripts Folder", action: reveal)
+        if let error = transcripts.lastError {
+            Text("Transcript not saved: \(error)")
+                .font(.caption)
+                .foregroundStyle(.red)
+        }
+    }
+}
+
 struct SettingsView: View {
     @ObservedObject var settings: SettingsStore
+    let reveal: () -> Void
 
     var body: some View {
         Form {
@@ -105,6 +127,28 @@ struct SettingsView: View {
                         .frame(width: 40, alignment: .trailing)
                 }
             }
+            Section("Audio") {
+                Toggle("Echo cancellation", isOn: $settings.echoCancellation)
+                Text("Stops speaker sound from being captioned twice, but macOS lowers other apps' audio while captions run. Leave off with headphones. Applies from the next Start.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section("Transcripts") {
+                Toggle("Save transcripts", isOn: $settings.saveTranscripts)
+                LabeledContent("Folder") {
+                    HStack {
+                        Text(abbreviatedPath(settings.transcriptsFolder))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .foregroundStyle(.secondary)
+                        Button("Choose…", action: chooseFolder)
+                        Button("Show", action: reveal)
+                    }
+                }
+                Text("One Markdown file per session. Your microphone is labeled Me and other audio Them. Changes apply from the next Start. Let people know when you're saving a conversation.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Section("General") {
                 Toggle("Launch at login", isOn: $settings.launchAtLogin)
                 Text("Keeps the global shortcut working after a restart.")
@@ -114,5 +158,22 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .frame(width: 460)
+    }
+
+    private func abbreviatedPath(_ url: URL) -> String {
+        (url.path as NSString).abbreviatingWithTildeInPath
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Use Folder"
+        panel.directoryURL = settings.transcriptsFolder.deletingLastPathComponent()
+        if panel.runModal() == .OK, let url = panel.url {
+            settings.transcriptsFolder = url
+        }
     }
 }

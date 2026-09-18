@@ -7,16 +7,18 @@ import CaptionCore
 final class DualCapture: AudioCapturing {
     private let micEnabled: () -> Bool
     private let systemEnabled: () -> Bool
-    private let mic = MicSource()
+    private let mic: MicSource
     private let system = SystemAudioSource()
     private let interleaver = Interleaver()
     private var timer: DispatchSourceTimer?
     private let queue = DispatchQueue(label: "dualcapture.drain")
     private var started = false
 
-    init(micEnabled: @escaping () -> Bool, systemEnabled: @escaping () -> Bool) {
+    init(micEnabled: @escaping () -> Bool, systemEnabled: @escaping () -> Bool,
+         echoCancellation: Bool = false) {
         self.micEnabled = micEnabled
         self.systemEnabled = systemEnabled
+        mic = MicSource(echoCancellation: echoCancellation)
     }
 
     func start(onChunk: @escaping (Data) -> Void) throws {

@@ -14,6 +14,22 @@ final class AppleSpeechEngine: NSObject, CaptionEngine {
     private var channels: [ChannelRecognizer] = []
     private var tickTimer: DispatchSourceTimer?
     private var stopped = false
+    private var reportedFailure = false
+
+    /// A recognizer error that will fail every task until the user changes
+    /// something, worded as what to change. Nil for the routine endings
+    /// ("No speech detected", cancellation) that happen between utterances.
+    ///
+    /// kLSRErrorDomain 201: Apple's recognizer refuses to run at all while
+    /// Siri and Dictation are off in System Settings. Every task fails the
+    /// moment speech opens it, so without this the overlay just stays empty.
+    static func blockingFailureMessage(for error: Error) -> String? {
+        let nsError = error as NSError
+        if nsError.domain == "kLSRErrorDomain" && nsError.code == 201 {
+            return "Dictation is turned off, so macOS won't transcribe speech. Turn on Dictation in System Settings › Keyboard, then start captions again."
+        }
+        return nil
+    }
 
     func start() {
         SFSpeechRecognizer.requestAuthorization { [weak self] status in
@@ -28,8 +44,14 @@ final class AppleSpeechEngine: NSObject, CaptionEngine {
                 let emitCaption: (String, Bool, Int) -> Void = { [weak self] text, isFinal, channel in
                     self?.emit(.caption(text: text, isFinal: isFinal, channel: channel))
                 }
+                // Both channels hit the same blocking failure; report it once.
+                let fail: (String) -> Void = { [weak self] message in
+                    guard let self, !self.stopped, !self.reportedFailure else { return }
+                    self.reportedFailure = true
+                    self.emit(.error(message: message))
+                }
                 let made = [0, 1].compactMap { channel in
-                    ChannelRecognizer(channel: channel, queue: self.queue, emit: emitCaption)
+                    ChannelRecognizer(channel: channel, queue: self.queue, emit: emitCaption, fail: fail)
                 }
                 guard made.count == 2 else {
                     self.emit(.error(message: "Apple speech recognition is unavailable on this Mac."))
@@ -45,7 +67,7 @@ final class AppleSpeechEngine: NSObject, CaptionEngine {
     func send(_ audio: Data) {
         queue.async { [weak self] in
             guard let self, !self.stopped, !self.channels.isEmpty else { return }
-            let (mic, system) = Self.deinterleave(audio)
+            let (mic, system) = StereoPCM.split(audio)
             self.channels[0].append(mic)
             self.channels[1].append(system)
         }
@@ -81,21 +103,6 @@ final class AppleSpeechEngine: NSObject, CaptionEngine {
         Task { @MainActor in onEvent(message) }
     }
 
-    /// Split interleaved stereo Int16 LE frames (ch0 = mic, ch1 = system).
-    private static func deinterleave(_ data: Data) -> ([Int16], [Int16]) {
-        let frames = data.count / 4
-        guard frames > 0 else { return ([], []) }
-        var mic = [Int16](repeating: 0, count: frames)
-        var system = [Int16](repeating: 0, count: frames)
-        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
-            let samples = raw.bindMemory(to: Int16.self)
-            for f in 0..<frames {
-                mic[f] = Int16(littleEndian: samples[f * 2])
-                system[f] = Int16(littleEndian: samples[f * 2 + 1])
-            }
-        }
-        return (mic, system)
-    }
 }
 
 /// One channel's recognition pipeline. All calls happen on the owner's queue.
@@ -106,6 +113,7 @@ private final class ChannelRecognizer {
     private let channel: Int
     private let queue: DispatchQueue
     private let emit: (String, Bool, Int) -> Void
+    private let fail: (String) -> Void
     private let format = AVAudioFormat(
         commonFormat: .pcmFormatInt16, sampleRate: 16_000, channels: 1, interleaved: true)!
 
@@ -124,7 +132,8 @@ private final class ChannelRecognizer {
     /// incoming audio is worth starting/continuing a task for.
     private var gate = EnergyGate()
 
-    init?(channel: Int, queue: DispatchQueue, emit: @escaping (String, Bool, Int) -> Void) {
+    init?(channel: Int, queue: DispatchQueue, emit: @escaping (String, Bool, Int) -> Void,
+          fail: @escaping (String) -> Void) {
         // Availability probe only — the instance a task actually runs on is
         // created fresh in activeRequest() for every task. Holding a single
         // SFSpeechRecognizer for this recognizer's whole lifetime doesn't
@@ -136,6 +145,7 @@ private final class ChannelRecognizer {
         self.channel = channel
         self.queue = queue
         self.emit = emit
+        self.fail = fail
     }
 
     func append(_ samples: [Int16]) {
@@ -193,6 +203,9 @@ private final class ChannelRecognizer {
                         self.emit(text, false, self.channel)
                     }
                     if result.isFinal { self.finalizeUtterance() }
+                } else if let error, let message = AppleSpeechEngine.blockingFailureMessage(for: error) {
+                    self.abandonTask()
+                    self.fail(message)
                 } else if error != nil {
                     // Recognizer gave up (silence timeout, cancellation, …):
                     // keep whatever was heard. abandonTask() re-arms the

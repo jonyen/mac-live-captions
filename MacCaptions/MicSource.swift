@@ -1,9 +1,27 @@
 import AVFoundation
 
+/// The slice of AVAudioInputNode that voice processing policy touches, so
+/// the policy is testable without live audio hardware.
+protocol VoiceProcessingInput: AnyObject {
+    var isVoiceProcessingEnabled: Bool { get }
+    func setVoiceProcessingEnabled(_ enabled: Bool) throws
+    var voiceProcessingOtherAudioDuckingConfiguration: AVAudioVoiceProcessingOtherAudioDuckingConfiguration { get set }
+}
+
+extension AVAudioInputNode: VoiceProcessingInput {}
+
 /// Mic capture producing 16 kHz mono Int16 samples (same conversion approach
 /// as the watch AudioCapture, minus AVAudioSession, which doesn't exist on macOS).
 final class MicSource {
     private let engine = AVAudioEngine()
+    /// Echo cancellation via Apple voice processing. Off by default: on
+    /// macOS, voice processing ducks every other app's audio while it runs,
+    /// which made calls and videos inaudible whenever captions were on.
+    private let echoCancellation: Bool
+
+    init(echoCancellation: Bool = false) {
+        self.echoCancellation = echoCancellation
+    }
     // Not `private`: exposed at file-crossing (internal) visibility so
     // MicSourceTests can inject a pre-built converter and drive `convert(_:)`
     // directly, without spinning up AVAudioEngine (which needs live hardware).
@@ -13,13 +31,9 @@ final class MicSource {
 
     func start(onSamples: @escaping ([Int16]) -> Void) throws {
         let input = engine.inputNode
-        // Echo cancellation: without it, speaker playback (already captured on
-        // the system-audio channel) bleeds into the mic and the same speech is
-        // transcribed twice, once per channel. Best-effort — some devices
-        // don't support voice processing, and plain capture still works.
-        if !input.isVoiceProcessingEnabled {
-            try? input.setVoiceProcessingEnabled(true)
-        }
+        // Must be settled before reading the input format: voice processing
+        // changes the node's channel layout.
+        Self.applyVoiceProcessing(echoCancellation, to: input)
         let inputFormat = input.outputFormat(forBus: 0)
         // Build the converter from a mono Float32 intermediate format, NOT
         // directly from inputFormat. See the WHY comment on monoChannel0(_:)
@@ -49,7 +63,40 @@ final class MicSource {
     func stop() {
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
+        // Voice processing can only be toggled with the engine stopped, and
+        // stopping alone does not end its ducking of other audio.
+        Self.releaseVoiceProcessing(engine.inputNode)
         converter = nil
+    }
+
+    /// Turn voice processing on or off for a capture session.
+    ///
+    /// On: echo cancellation, so speaker playback (already captured on the
+    /// system-audio channel) doesn't bleed into the mic and get transcribed a
+    /// second time. It ducks other apps' audio, so ducking is set to the
+    /// lightest level Apple offers. Best-effort: some devices don't support
+    /// voice processing, and plain capture still works.
+    ///
+    /// Off: plain capture with no ducking; with speakers (not headphones) the
+    /// other side's speech may also appear under "Me".
+    static func applyVoiceProcessing(_ enabled: Bool, to input: VoiceProcessingInput) {
+        guard enabled else {
+            releaseVoiceProcessing(input)
+            return
+        }
+        if !input.isVoiceProcessingEnabled {
+            try? input.setVoiceProcessingEnabled(true)
+        }
+        guard input.isVoiceProcessingEnabled else { return }
+        input.voiceProcessingOtherAudioDuckingConfiguration =
+            AVAudioVoiceProcessingOtherAudioDuckingConfiguration(enableAdvancedDucking: false, duckingLevel: .min)
+    }
+
+    /// End voice processing (and with it, the ducking of other audio).
+    static func releaseVoiceProcessing(_ input: VoiceProcessingInput) {
+        if input.isVoiceProcessingEnabled {
+            try? input.setVoiceProcessingEnabled(false)
+        }
     }
 
     /// Extract channel 0 of `buffer` into a new mono Float32 buffer at the

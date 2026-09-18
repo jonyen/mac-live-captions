@@ -1,11 +1,12 @@
 # Captions — macOS live caption overlay
 
 A menu-bar-only (no Dock icon) Mac app that captions your Mac's microphone and
-system audio live, in a floating always-on-top panel. Captions are generated
-on-device whenever Apple's on-device speech model is available for your
-language (the app requests it explicitly); without it, macOS falls back to
-Apple's speech servers. There's no app server, no relay, and no transcript
-history.
+system audio live, in a floating always-on-top panel. System audio is
+captured from the apps themselves, so calls and videos are captioned even
+through headphones. On macOS 26 and later captions are generated on-device
+with Apple's SpeechAnalyzer and work with Siri & Dictation turned off (the
+speech model for your language downloads once on first start). There's no app
+server and no relay, and nothing is kept unless you turn on **Save Transcripts**.
 
 ## Features
 - **Menu bar controls** — Start/Stop, and independent Microphone / System
@@ -18,13 +19,19 @@ history.
   hover. Double-click the panel to zoom it to fill the screen; double-click
   again to restore. If the session hits an error, the panel shows the error
   message instead.
-- **Speech recognition** — `AppleSpeechEngine.swift` wraps `SFSpeechRecognizer`
-  as a `CaptionEngine` (from the `caption-core` package): `start()` asks for
-  speech-recognition permission and emits `.ready`; `send(_:)` takes
-  interleaved stereo PCM (mic + system audio) and feeds one recognizer per
-  channel. It requests on-device recognition when the recognizer reports
-  `supportsOnDeviceRecognition`; otherwise the audio is recognized via
-  Apple's speech servers.
+- **Speech recognition** — `AppModel.makeSpeechEngine()` picks the engine.
+  Both are `CaptionEngine`s (from the `caption-core` package) whose `send(_:)`
+  takes interleaved stereo PCM (mic + system audio, split by `StereoPCM`) and
+  runs one recognizer per channel.
+  - macOS 26+: `AnalyzerSpeechEngine.swift` streams each channel into its own
+    `SpeechAnalyzer` + `SpeechTranscriber`, reporting in-progress text as
+    partial captions and finished text as final ones. It does not need Siri &
+    Dictation enabled. `start()` downloads the on-device model for your
+    language if needed, then emits `.ready`; an unsupported language or failed
+    download is shown as an error.
+  - Earlier macOS: `AppleSpeechEngine.swift` wraps `SFSpeechRecognizer`, which
+    refuses to run while Siri & Dictation are off; the panel says so and
+    points to System Settings › Keyboard.
 - **Global hotkey** — a menu-bar-independent shortcut (default ⌃⌥⌘C,
   configurable) toggles the caption overlay without needing to click the menu
   bar icon. `GlobalHotkey.swift` registers it with Carbon so it fires from any
@@ -34,15 +41,30 @@ history.
 - **Launch at login** — a toggle in Settings (`SettingsStore.swift`, backed by
   `SMAppService.mainApp`) registers Captions as a login item, since the
   global hotkey only works while the app is running.
-- **Settings** — a text-size slider and the launch-at-login toggle for the
-  caption overlay (`SettingsStore.swift`, backed by `UserDefaults` and
-  `SMAppService`).
+- **Transcripts (opt-in)** — with **Save Transcripts** on (menu bar or
+  Settings), each captioning session is written to a Markdown file in
+  `~/Documents/Captions Transcripts` (folder configurable), named by start
+  time, e.g. `2026-09-16 11.00.05 Captions.md`. Only finished utterances are
+  logged, one per line with arrival time and speaker: microphone is `Me`,
+  system audio (everyone else on a call) is `Them`. Pausing from the overlay
+  and resuming continues the same file with a `Resumed at` marker; Stop ends
+  it. Nothing is created for a session where nobody spoke, each line is
+  written immediately, and a failed write shows in the menu without stopping
+  captions. `TranscriptLog` writes the file, `TranscriptLoggingEngine`
+  forwards finished captions from the speech engine, and `TranscriptRecorder`
+  decides which file a session writes to. Let people know when you're saving
+  a conversation; some places require everyone's consent.
+- **Settings** — a text-size slider, the launch-at-login toggle, and the
+  transcript toggle and folder (`SettingsStore.swift`, backed by
+  `UserDefaults` and `SMAppService`).
 
 ## Layout
 - `MacCaptions/` — the app: `AppModel` (state, capture + recognition
   wiring), `DualCapture` + `SystemAudioSource` + `MicSource` + `Interleaver`
-  + `AudioHub` (mic and system-audio capture), `AppleSpeechEngine` (on-device
-  speech recognition), `CaptionPanel.swift` (the floating overlay),
+  + `AudioHub` (mic and system-audio capture), `AnalyzerSpeechEngine` /
+  `AppleSpeechEngine` (on-device speech recognition), `TranscriptLog` + `TranscriptLoggingEngine` +
+  `TranscriptRecorder` (opt-in transcript files), `CaptionPanel.swift` (the
+  floating overlay),
   `SettingsStore` (overlay preferences), `MacPermissions` (mic authorization),
   and the `@main` app (`MenuBarExtra` scene, `LSUIElement` so there's no Dock
   icon or main window).
@@ -65,7 +87,9 @@ history.
    (required for system-audio capture via ScreenCaptureKit) — grant all three
    in System Settings → Privacy & Security if you miss the prompts. A fresh
    Screen Recording grant only takes effect after relaunching the app —
-   macOS doesn't apply it to an already-running process.
+   macOS doesn't apply it to an already-running process. With Save
+   Transcripts on and the default folder, macOS also asks once for access to
+   **Documents**.
 
 ## Build
 ```bash

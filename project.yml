@@ -23,6 +23,7 @@ targets:
         NSMicrophoneUsageDescription: "Captions your side of conversations."
         NSAudioCaptureUsageDescription: "Captions audio playing on your Mac (calls, videos)."
         NSSpeechRecognitionUsageDescription: "Generates captions on-device with Apple speech recognition."
+        NSDocumentsFolderUsageDescription: "Saves caption transcripts to your Documents folder when Save Transcripts is on."
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.jonyen.watchcaptions.mac
