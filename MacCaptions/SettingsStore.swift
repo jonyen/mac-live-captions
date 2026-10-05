@@ -42,6 +42,19 @@ final class SettingsStore: ObservableObject {
         didSet { UserDefaults.standard.set(saveTranscripts, forKey: "saveTranscripts") }
     }
 
+    /// Capture the microphone. Persisted so a session left with a source
+    /// turned off doesn't come back on at the next launch.
+    @Published var micOn: Bool {
+        didSet { UserDefaults.standard.set(micOn, forKey: "micOn") }
+    }
+
+    /// Capture system audio. Persisted for the same reason as `micOn`, and
+    /// with a second one: system audio goes through ScreenCaptureKit, so
+    /// leaving it on re-asks for Screen Recording at every start.
+    @Published var systemOn: Bool {
+        didSet { UserDefaults.standard.set(systemOn, forKey: "systemOn") }
+    }
+
     /// Apple voice processing on the microphone. Removes speaker echo from
     /// the mic channel but lowers every other app's audio while captioning,
     /// so it is opt-in. Takes effect at the next Start.
@@ -60,11 +73,18 @@ final class SettingsStore: ObservableObject {
         hotkey = HotkeyBinding.stored()
         launchAtLogin = SMAppService.mainApp.status == .enabled
         saveTranscripts = UserDefaults.standard.bool(forKey: "saveTranscripts")
+        micOn = Self.captureEnabled(stored: UserDefaults.standard.object(forKey: "micOn") as? Bool)
+        systemOn = Self.captureEnabled(stored: UserDefaults.standard.object(forKey: "systemOn") as? Bool)
         echoCancellation = Self.echoCancellation(
             stored: UserDefaults.standard.object(forKey: "echoCancellation") as? Bool)
         transcriptsFolder = Self.transcriptsFolder(
             stored: UserDefaults.standard.string(forKey: "transcriptsFolder"),
             home: FileManager.default.homeDirectoryForCurrentUser)
+    }
+
+    /// A capture source is on unless the user turned it off.
+    static func captureEnabled(stored: Bool?) -> Bool {
+        stored ?? true
     }
 
     /// Off unless the user turned it on.

@@ -9,8 +9,6 @@ final class AppModel: ObservableObject {
     let settings: SettingsStore
     let transcripts: TranscriptRecorder
     @Published private(set) var capturing = false
-    @Published var micOn = true
-    @Published var systemOn = true
 
     private var hub: AudioHub?
     private var controller: SessionController?
@@ -53,8 +51,8 @@ final class AppModel: ObservableObject {
         guard !capturing else { return }
         panel.show(model: self)
         let hub = AudioHub(capture: DualCapture(
-            micEnabled: { [weak self] in self?.micOn ?? false },
-            systemEnabled: { [weak self] in self?.systemOn ?? false },
+            micEnabled: { [weak self] in self?.settings.micOn ?? false },
+            systemEnabled: { [weak self] in self?.settings.systemOn ?? false },
             echoCancellation: settings.echoCancellation))
         self.hub = hub
         // A resume after pause() continues the same transcript; see TranscriptRecorder.

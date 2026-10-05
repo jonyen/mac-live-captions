@@ -30,8 +30,7 @@ struct MacCaptionsApp: App {
             } else {
                 Button(model.capturing ? "Stop Captions" : "Start Captions") { model.toggle() }
             }
-            Toggle("Microphone", isOn: $model.micOn)
-            Toggle("System Audio", isOn: $model.systemOn)
+            CaptureSourceToggles(settings: model.settings)
             Divider()
             TranscriptMenuItems(settings: model.settings, transcripts: model.transcripts,
                                 reveal: model.revealTranscriptsFolder)
@@ -47,6 +46,17 @@ struct MacCaptionsApp: App {
         Settings {
             SettingsView(settings: model.settings, reveal: model.revealTranscriptsFolder)
         }
+    }
+}
+
+/// Both toggles live on SettingsStore (they persist), so the menu needs its
+/// own `@ObservedObject` on it to re-render when one is flipped.
+private struct CaptureSourceToggles: View {
+    @ObservedObject var settings: SettingsStore
+
+    var body: some View {
+        Toggle("Microphone", isOn: $settings.micOn)
+        Toggle("System Audio", isOn: $settings.systemOn)
     }
 }
 
