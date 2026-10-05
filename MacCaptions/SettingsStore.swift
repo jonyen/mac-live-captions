@@ -42,6 +42,12 @@ final class SettingsStore: ObservableObject {
         didSet { UserDefaults.standard.set(saveTranscripts, forKey: "saveTranscripts") }
     }
 
+    /// Start captions, with a saved transcript, whenever Granola records a
+    /// meeting, and stop them when it finishes. Off by default.
+    @Published var autoCaptionGranola: Bool {
+        didSet { UserDefaults.standard.set(autoCaptionGranola, forKey: "autoCaptionGranola") }
+    }
+
     /// Capture the microphone. Persisted so a session left with a source
     /// turned off doesn't come back on at the next launch.
     @Published var micOn: Bool {
@@ -73,6 +79,7 @@ final class SettingsStore: ObservableObject {
         hotkey = HotkeyBinding.stored()
         launchAtLogin = SMAppService.mainApp.status == .enabled
         saveTranscripts = UserDefaults.standard.bool(forKey: "saveTranscripts")
+        autoCaptionGranola = UserDefaults.standard.bool(forKey: "autoCaptionGranola")
         micOn = Self.captureEnabled(stored: UserDefaults.standard.object(forKey: "micOn") as? Bool)
         systemOn = Self.captureEnabled(stored: UserDefaults.standard.object(forKey: "systemOn") as? Bool)
         echoCancellation = Self.echoCancellation(

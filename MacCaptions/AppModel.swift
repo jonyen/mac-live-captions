@@ -16,6 +16,9 @@ final class AppModel: ObservableObject {
     private var stateObservation: AnyCancellable?
     private var hotkey: GlobalHotkey?
     private var hotkeyObservation: AnyCancellable?
+    private var granola: GranolaWatcher?
+    private var granolaObservation: AnyCancellable?
+    private var ownership = AutoSessionOwnership()
 
     init() {
         let settings = SettingsStore()
@@ -30,10 +33,26 @@ final class AppModel: ObservableObject {
             if let binding { self?.hotkey?.register(binding) }
             else { self?.hotkey?.unregister() }
         }
+        granola = GranolaWatcher { [weak self] event in self?.granolaMeeting(event) }
+        granolaObservation = settings.$autoCaptionGranola.sink { [weak self] on in
+            if on { self?.granola?.start() } else { self?.granola?.stop() }
+        }
     }
 
     func toggle() {
         capturing ? stop() : start()
+    }
+
+    /// A Granola meeting starts captions only when none are running, and
+    /// ends only captions it started. Its transcript is always saved: that
+    /// is the point of auto-captioning a meeting.
+    private func granolaMeeting(_ event: MeetingDebouncer.Event) {
+        switch event {
+        case .started:
+            if ownership.meetingStarted(capturing: capturing) { start(saveTranscript: true) }
+        case .ended:
+            if ownership.meetingEnded() { stop() }
+        }
     }
 
     /// Overlay ▶/⏸ control: pause ends the session (a new one starts on
@@ -48,6 +67,10 @@ final class AppModel: ObservableObject {
     }
 
     func start() {
+        start(saveTranscript: ownership.owned || settings.saveTranscripts)
+    }
+
+    private func start(saveTranscript: Bool) {
         guard !capturing else { return }
         panel.show(model: self)
         let hub = AudioHub(capture: DualCapture(
@@ -57,7 +80,7 @@ final class AppModel: ObservableObject {
         self.hub = hub
         // A resume after pause() continues the same transcript; see TranscriptRecorder.
         let engine = transcripts.beginCapture(
-            wrapping: Self.makeSpeechEngine(), enabled: settings.saveTranscripts)
+            wrapping: Self.makeSpeechEngine(), enabled: saveTranscript)
         let controller = SessionController(
             store: store, relay: engine, audio: hub.makeTap(),
             permission: MacPermissions())
@@ -74,6 +97,7 @@ final class AppModel: ObservableObject {
     }
 
     func stop() {
+        ownership.userStopped()
         pause()
         transcripts.endSession()
         panel.hide()

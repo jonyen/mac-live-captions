@@ -104,6 +104,7 @@ private struct TranscriptMenuItems: View {
 
     var body: some View {
         Toggle("Save Transcripts", isOn: $settings.saveTranscripts)
+        Toggle("Auto-caption Granola Meetings", isOn: $settings.autoCaptionGranola)
         Button("Open Transcripts Folder", action: reveal)
         if let error = transcripts.lastError {
             Text("Transcript not saved: \(error)")
@@ -156,6 +157,10 @@ struct SettingsView: View {
                     }
                 }
                 Text("One Markdown file per session. Your microphone is labeled Me and other audio Them. Changes apply from the next Start. Let people know when you're saving a conversation.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Toggle("Auto-caption Granola meetings", isOn: $settings.autoCaptionGranola)
+                Text("Starts captions when Granola starts recording a meeting and stops them when it finishes. These transcripts are always saved. Captions you started yourself are left alone. Needs macOS 14.2 or later.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
