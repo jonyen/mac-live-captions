@@ -45,11 +45,12 @@ final class AppModel: ObservableObject {
 
     /// A Granola meeting starts captions only when none are running, and
     /// ends only captions it started. Its transcript is always saved: that
-    /// is the point of auto-captioning a meeting.
+    /// is the point of auto-captioning a meeting. The panel stays hidden,
+    /// since the meeting app shows its own captions.
     private func granolaMeeting(_ event: MeetingDebouncer.Event) {
         switch event {
         case .started:
-            if ownership.meetingStarted(capturing: capturing) { start(saveTranscript: true) }
+            if ownership.meetingStarted(capturing: capturing) { start(saveTranscript: true, showPanel: false) }
         case .ended:
             if ownership.meetingEnded() { stop() }
         }
@@ -67,12 +68,12 @@ final class AppModel: ObservableObject {
     }
 
     func start() {
-        start(saveTranscript: ownership.owned || settings.saveTranscripts)
+        start(saveTranscript: ownership.owned || settings.saveTranscripts, showPanel: true)
     }
 
-    private func start(saveTranscript: Bool) {
+    private func start(saveTranscript: Bool, showPanel: Bool) {
         guard !capturing else { return }
-        panel.show(model: self)
+        if showPanel { panel.show(model: self) }
         let hub = AudioHub(capture: DualCapture(
             micEnabled: { [weak self] in self?.settings.micOn ?? false },
             systemEnabled: { [weak self] in self?.settings.systemOn ?? false },

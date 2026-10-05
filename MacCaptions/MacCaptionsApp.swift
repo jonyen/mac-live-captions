@@ -160,7 +160,7 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Toggle("Auto-caption Granola meetings", isOn: $settings.autoCaptionGranola)
-                Text("Starts captions when Granola starts recording a meeting and stops them when it finishes. These transcripts are always saved. Captions you started yourself are left alone. Needs macOS 14.2 or later.")
+                Text("Starts captions when Granola starts recording a meeting and stops them when it finishes, without showing the caption panel. These transcripts are always saved. Captions you started yourself are left alone. Needs macOS 14.2 or later.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
